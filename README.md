@@ -1,4 +1,4 @@
-# OpenWeibo
+﻿# OpenWeibo
 
 一个本地优先的第三方微博 Android 客户端。关注时间线严格按发布时间排序，没有算法推荐；界面参考 OpenCode Windows 风格的细边框面板，支持深色、浅色与跟随系统。
 
@@ -37,7 +37,7 @@
 
 ## 安装
 
-1. 将 `OpenWeibo-0.12.1-debug.apk` 传到 Android 手机。
+1. 将 `OpenWeibo-0.12.2-debug.apk` 传到 Android 手机。
 2. 允许文件管理器/浏览器「安装未知来源应用」。
 3. 安装并打开 OpenWeibo。
 4. 在登录页完成微博登录，应用检测到有效会话后自动进入时间线。
@@ -46,9 +46,9 @@
 - 目标系统：Android 15（API 35）
 - APK 为 **debug 签名**，适合个人安装测试；如需公开分发，请配置自己的 release 签名。
 
-APK 下载：GitHub Releases 附件 `OpenWeibo-0.12.1-debug.apk`
+APK 下载：GitHub Releases 附件 `OpenWeibo-0.12.2-debug.apk`
 
-SHA-256：`E0BACC4B342F6A57064750224224000D387FC6136AE9443291D4AAF5C2E08AC2`
+SHA-256：`411C0047A6C21F4042FE5510F4B5E8B837D54DF46EDCA2FEC7F13FAA4C94E1C9`
 
 ## 使用说明
 

@@ -267,7 +267,7 @@ fun AccountScreen(
                             fontWeight = FontWeight.Medium
                         )
                         Spacer(Modifier.width(8.dp))
-                        ValueTag("v0.12.1")
+                        ValueTag("v0.12.2")
                         Spacer(Modifier.weight(1f))
                         MonoLabel("WINDOWS EDITION", size = 8)
                     }

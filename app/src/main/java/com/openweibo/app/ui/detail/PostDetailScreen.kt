@@ -1,9 +1,11 @@
-﻿package com.openweibo.app.ui.detail
+package com.openweibo.app.ui.detail
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,11 +26,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -52,11 +53,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -86,8 +89,14 @@ import com.openweibo.app.ui.feed.PostCard
 import com.openweibo.app.ui.theme.AppTheme
 import com.openweibo.app.ui.theme.Geist
 import com.openweibo.app.ui.theme.monoStyle
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 
+/** Horizontal drag distance that counts as a deliberate tab swipe. */
+private const val HORIZONTAL_SWIPE_THRESHOLD_PX = 120f
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PostDetailScreen(
     post: WeiboPost,
@@ -109,29 +118,12 @@ fun PostDetailScreen(
     var commentDraft by rememberSaveable { mutableStateOf("") }
     var repostDraft by rememberSaveable { mutableStateOf("") }
     var showRepostDialog by remember { mutableStateOf(false) }
-    val commentsListState = rememberLazyListState()
-    val repostsListState = rememberLazyListState()
-    val pagerState = rememberPagerState(
-        initialPage = if (initialTab == DetailTab.Comments) 0 else 1
-    ) { 2 }
+    val listState = rememberLazyListState()
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         viewModel.start(initialTab)
-    }
-    LaunchedEffect(pagerState.currentPage) {
-        val targetTab = if (pagerState.currentPage == 0) {
-            DetailTab.Comments
-        } else {
-            DetailTab.Reposts
-        }
-        if (state.tab != targetTab) {
-            viewModel.selectTab(targetTab)
-        }
-        if (targetTab == DetailTab.Reposts) {
-            focusManager.clearFocus()
-        }
     }
     LaunchedEffect(state.authExpired) {
         if (state.authExpired) onLoginExpired()
@@ -146,115 +138,177 @@ fun PostDetailScreen(
         if (state.commentResetToken > 0) commentDraft = ""
     }
 
-    fun selectTab(tab: DetailTab) {
-        viewModel.selectTab(tab)
-        scope.launch {
-            pagerState.animateScrollToPage(
-                if (tab == DetailTab.Comments) 0 else 1
-            )
+    // Infinite scroll: when the visible tail of the list gets close to the end, ask
+    // for the next page of whichever tab is showing.
+    val activeCount = when (state.tab) {
+        DetailTab.Comments -> state.comments.items.size
+        DetailTab.Reposts -> state.reposts.items.size
+    }
+    LaunchedEffect(listState, state.tab, activeCount) {
+        snapshotFlow {
+            val info = listState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+            info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 3
         }
+            .distinctUntilChanged()
+            .filter { it }
+            .collect {
+                val canLoad = when (state.tab) {
+                    DetailTab.Comments -> !state.comments.loading &&
+                        !state.comments.loadingMore &&
+                        !state.comments.endReached &&
+                        state.comments.loadMoreError == null
+
+                    DetailTab.Reposts -> !state.reposts.loading &&
+                        !state.reposts.loadingMore &&
+                        !state.reposts.endReached &&
+                        state.reposts.loadMoreError == null
+                }
+                if (canLoad && activeCount > 0) viewModel.loadMore()
+            }
+    }
+
+    // Switching tabs keeps the user's place in the post but returns to the top of
+    // the newly shown list, so the header does not jump around unexpectedly.
+    fun selectTab(tab: DetailTab) {
+        if (state.tab == tab) return
+        viewModel.selectTab(tab)
+        if (tab == DetailTab.Reposts) focusManager.clearFocus()
+        scope.launch { listState.animateScrollToItem(0) }
     }
 
     BackHandler(enabled = !showRepostDialog, onBack = onClose)
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(colors.bg)
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-    ) {
-        DetailTopBar(
-            title = "微博详情",
-            subtitle = "@${post.user.screenName}",
-            busy = when (state.tab) {
-                DetailTab.Comments -> state.comments.loading
-                DetailTab.Reposts -> state.reposts.loading
-            },
-            onClose = onClose,
-            onRefresh = { viewModel.refresh() },
-            onRepost = { showRepostDialog = true }
-        )
-        Hairline()
-
-        DetailTabs(
-            selected = state.tab,
-            commentCount = if (state.comments.total > 0) {
-                state.comments.total
-            } else {
-                post.commentsCount
-            },
-            repostCount = if (state.reposts.total > 0) {
-                state.reposts.total
-            } else {
-                post.repostsCount
-            },
-            onSelect = ::selectTab
-        )
-        Hairline()
-
-        // The post is the first item *inside* the scrolling list (not a fixed block
-        // above it), so swiping up on the post itself scrolls it away and brings the
-        // conversation into view. The pager only swaps which list drives the items,
-        // so the post never slides sideways when switching tabs.
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        ) { page ->
-            if (page == 0) {
-                CommentList(
-                    post = post,
-                    listState = commentsListState,
-                    state = state.comments,
-                    onOpenImages = onOpenImages,
-                    onSaveImages = onSaveImages,
-                    onOpenVideo = onOpenVideo,
-                    onOpenUser = onOpenUser,
-                    onOpenPost = onOpenPost,
-                    currentUid = currentUid,
-                    onManagePost = onManagePost,
-                    onSnackbar = onSnackbar,
-                    onOpenReposts = { selectTab(DetailTab.Reposts) },
-                    onRetry = { viewModel.refresh() },
-                    onLoadMore = { viewModel.loadMore() }
-                )
-            } else {
-                RepostList(
-                    post = post,
-                    listState = repostsListState,
-                    state = state.reposts,
-                    onOpenImages = onOpenImages,
-                    onSaveImages = onSaveImages,
-                    onOpenVideo = onOpenVideo,
-                    onOpenUser = onOpenUser,
-                    onOpenPost = onOpenPost,
-                    currentUid = currentUid,
-                    onManagePost = onManagePost,
-                    onSnackbar = onSnackbar,
-                    onOpenComments = { selectTab(DetailTab.Comments) },
-                    onRetry = { viewModel.refresh() },
-                    onLoadMore = { viewModel.loadMore() }
-                )
-            }
-        }
-
-        when (state.tab) {
-            DetailTab.Comments -> CommentComposer(
-                value = commentDraft,
-                onValueChange = { commentDraft = it.take(140) },
-                posting = state.postingComment,
-                onSend = {
-                    if (commentDraft.isNotBlank()) {
-                        viewModel.submitComment(commentDraft)
+    // Horizontal swipe on the tab bar switches comments <-> reposts. It deliberately
+    // lives on the tab strip rather than the list: a horizontal detector wrapped
+    // around a vertical list steals its drag gestures and makes scrolling stutter.
+    val currentTab by rememberUpdatedState(state.tab)
+    val swipeModifier = Modifier.pointerInput(Unit) {
+        var accumulated = 0f
+        detectHorizontalDragGestures(
+            onDragStart = { accumulated = 0f },
+            onDragEnd = {
+                if (kotlin.math.abs(accumulated) > HORIZONTAL_SWIPE_THRESHOLD_PX) {
+                    val next = if (currentTab == DetailTab.Comments) {
+                        DetailTab.Reposts
+                    } else {
+                        DetailTab.Comments
                     }
+                    selectTab(next)
                 }
-            )
+            },
+            onHorizontalDrag = { _, dragAmount ->
+                accumulated += dragAmount
+            }
+        )
+    }
 
-            DetailTab.Reposts -> RepostActionBar(
-                posting = state.postingRepost,
+    Box(modifier = Modifier.fillMaxSize().background(colors.bg)) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+        ) {
+            DetailTopBar(
+                title = "微博详情",
+                subtitle = "@${post.user.screenName}",
+                busy = when (state.tab) {
+                    DetailTab.Comments -> state.comments.loading
+                    DetailTab.Reposts -> state.reposts.loading
+                },
+                onClose = onClose,
+                onRefresh = { viewModel.refresh() },
                 onRepost = { showRepostDialog = true }
             )
+            Hairline()
+
+            // One vertical list drives everything: the post is item 0 and the tab bar
+            // is a sticky header, so it always sits directly above the list body while
+            // scrolling the post never leaves the conversation behind.
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .weight(1f),
+                contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 16.dp)
+            ) {
+                item(key = "detail-post", contentType = "post") {
+                    Column(modifier = Modifier.padding(top = 10.dp)) {
+                        PostCard(
+                            post = post,
+                            onOpenImages = onOpenImages,
+                            onSaveImages = onSaveImages,
+                            onSnackbar = onSnackbar,
+                            onOpenComments = { _ -> },
+                            onOpenReposts = { _ -> selectTab(DetailTab.Reposts) },
+                            onOpenVideo = onOpenVideo,
+                            onOpenUser = onOpenUser,
+                            onOpenOriginal = onOpenPost,
+                            currentUid = currentUid,
+                            onManagePost = onManagePost
+                        )
+                    }
+                }
+
+                stickyHeader(key = "detail-tabs", contentType = "tabs") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(colors.bg)
+                            .then(swipeModifier)
+                    ) {
+                        DetailTabs(
+                            selected = state.tab,
+                            commentCount = if (state.comments.total > 0) {
+                                state.comments.total
+                            } else {
+                                post.commentsCount
+                            },
+                            repostCount = if (state.reposts.total > 0) {
+                                state.reposts.total
+                            } else {
+                                post.repostsCount
+                            },
+                            onSelect = ::selectTab
+                        )
+                        Hairline()
+                    }
+                }
+
+                when (state.tab) {
+                    DetailTab.Comments -> commentItems(
+                        state = state.comments,
+                        onOpenUser = onOpenUser,
+                        onRetry = { viewModel.refresh() },
+                        onLoadMore = { viewModel.loadMore() }
+                    )
+
+                    DetailTab.Reposts -> repostItems(
+                        state = state.reposts,
+                        onOpenUser = onOpenUser,
+                        onRetry = { viewModel.refresh() },
+                        onLoadMore = { viewModel.loadMore() }
+                    )
+                }
+            }
+
+            when (state.tab) {
+                DetailTab.Comments -> CommentComposer(
+                    value = commentDraft,
+                    onValueChange = { commentDraft = it.take(140) },
+                    posting = state.postingComment,
+                    onSend = {
+                        if (commentDraft.isNotBlank()) {
+                            viewModel.submitComment(commentDraft)
+                        }
+                    }
+                )
+
+                DetailTab.Reposts -> RepostActionBar(
+                    posting = state.postingRepost,
+                    onRepost = { showRepostDialog = true }
+                )
+            }
         }
     }
 
@@ -270,6 +324,138 @@ fun PostDetailScreen(
                 viewModel.submitRepost(repostDraft)
             }
         )
+    }
+}
+
+/**
+ * Comment rows as list items, so they live in the same scroll flow as the post.
+ */
+private fun LazyListScope.commentItems(
+    state: CommentListState,
+    onOpenUser: (WeiboUser) -> Unit,
+    onRetry: () -> Unit,
+    onLoadMore: () -> Unit
+) {
+    when {
+        state.loading && state.items.isEmpty() -> {
+            item(key = "comments-loading", contentType = "state") {
+                LoadingPanel("正在加载评论")
+            }
+        }
+
+        state.error != null && state.items.isEmpty() -> {
+            item(key = "comments-error", contentType = "state") {
+                EmptyState(
+                    icon = Icons.Outlined.CloudOff,
+                    title = "评论暂时不可用",
+                    body = state.error.orEmpty(),
+                    actionLabel = "重试",
+                    onAction = onRetry
+                )
+            }
+        }
+
+        state.items.isEmpty() -> {
+            item(key = "comments-empty", contentType = "state") {
+                EmptyState(
+                    icon = Icons.Outlined.ChatBubbleOutline,
+                    title = "还没有评论",
+                    body = "来抢第一条评论，或者稍后刷新看看。"
+                )
+            }
+        }
+
+        else -> {
+            items(
+                items = state.items,
+                key = { it.id },
+                contentType = { "comment" }
+            ) { comment ->
+                CommentRow(comment = comment, onOpenUser = onOpenUser)
+                Hairline(
+                    modifier = Modifier.padding(start = 44.dp),
+                    color = AppTheme.colors.borderSoft
+                )
+            }
+        }
+    }
+
+    if (state.items.isNotEmpty()) {
+        item(key = "comments-footer", contentType = "footer") {
+            DetailFooter(
+                loadingMore = state.loadingMore,
+                loadMoreError = state.loadMoreError,
+                endReached = state.endReached,
+                endLabel = "END OF COMMENTS",
+                onLoadMore = onLoadMore
+            )
+        }
+    }
+}
+
+/**
+ * Repost rows as list items, mirroring [commentItems].
+ */
+private fun LazyListScope.repostItems(
+    state: RepostListState,
+    onOpenUser: (WeiboUser) -> Unit,
+    onRetry: () -> Unit,
+    onLoadMore: () -> Unit
+) {
+    when {
+        state.loading && state.items.isEmpty() -> {
+            item(key = "reposts-loading", contentType = "state") {
+                LoadingPanel("正在加载转发")
+            }
+        }
+
+        state.error != null && state.items.isEmpty() -> {
+            item(key = "reposts-error", contentType = "state") {
+                EmptyState(
+                    icon = Icons.Outlined.CloudOff,
+                    title = "转发列表暂时不可用",
+                    body = state.error.orEmpty(),
+                    actionLabel = "重试",
+                    onAction = onRetry
+                )
+            }
+        }
+
+        state.items.isEmpty() -> {
+            item(key = "reposts-empty", contentType = "state") {
+                EmptyState(
+                    icon = Icons.Outlined.Repeat,
+                    title = "还没有人转发",
+                    body = "成为第一个转发这条微博的人。"
+                )
+            }
+        }
+
+        else -> {
+            items(
+                items = state.items,
+                key = { it.id },
+                contentType = { "repost" }
+            ) { repost ->
+                RepostRow(repost = repost, onOpenUser = onOpenUser)
+                Hairline(
+                    modifier = Modifier.padding(start = 44.dp),
+                    color = AppTheme.colors.borderSoft
+                )
+            }
+        }
+    }
+
+    if (state.items.isNotEmpty()) {
+        item(key = "reposts-footer", contentType = "footer") {
+            DetailFooter(
+                loadingMore = state.loadingMore,
+                loadMoreError = state.loadMoreError,
+                endReached = state.endReached,
+                endLabel = "END OF REPOSTS",
+                onLoadMore = onLoadMore
+            )
+        }
     }
 }
 
@@ -371,240 +557,6 @@ private fun DetailTabs(
  * It is a normal list item rather than a pinned header, which is what makes
  * "swipe up on the post to reach the comments" work.
  */
-@Composable
-private fun DetailPostHeader(
-    post: WeiboPost,
-    onOpenImages: (String, List<WeiboImage>, Int, String) -> Unit,
-    onSaveImages: (String, List<WeiboImage>) -> Unit,
-    onOpenVideo: (VideoPreview, String) -> Unit,
-    onOpenUser: (WeiboUser) -> Unit,
-    onOpenPost: (WeiboPost) -> Unit,
-    onSnackbar: (String) -> Unit,
-    onManagePost: (WeiboPost) -> Unit,
-    currentUid: String,
-    onSwitchToReposts: () -> Unit
-) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        PostCard(
-            post = post,
-            onOpenImages = onOpenImages,
-            onSaveImages = onSaveImages,
-            onSnackbar = onSnackbar,
-            onOpenComments = { _ -> },
-            onOpenReposts = { _ -> onSwitchToReposts() },
-            onOpenVideo = onOpenVideo,
-            onOpenUser = onOpenUser,
-            onOpenOriginal = onOpenPost,
-            currentUid = currentUid,
-            onManagePost = onManagePost
-        )
-    }
-}
-
-@Composable
-private fun CommentList(
-    post: WeiboPost,
-    listState: LazyListState,
-    state: CommentListState,
-    onOpenImages: (String, List<WeiboImage>, Int, String) -> Unit,
-    onSaveImages: (String, List<WeiboImage>) -> Unit,
-    onOpenVideo: (VideoPreview, String) -> Unit,
-    onOpenUser: (WeiboUser) -> Unit,
-    onOpenPost: (WeiboPost) -> Unit,
-    currentUid: String,
-    onManagePost: (WeiboPost) -> Unit,
-    onSnackbar: (String) -> Unit,
-    onOpenReposts: () -> Unit,
-    onRetry: () -> Unit,
-    onLoadMore: () -> Unit
-) {
-    AutoLoadMore(
-        listState = listState,
-        enabled = state.items.isNotEmpty() && !state.loading && !state.loadingMore &&
-            !state.endReached && state.loadMoreError == null,
-        onLoadMore = onLoadMore
-    )
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        item(key = "detail-post", contentType = "post") {
-            DetailPostHeader(
-                post = post,
-                onOpenImages = onOpenImages,
-                onSaveImages = onSaveImages,
-                onOpenVideo = onOpenVideo,
-                onOpenUser = onOpenUser,
-                onOpenPost = onOpenPost,
-                onSnackbar = onSnackbar,
-                onManagePost = onManagePost,
-                currentUid = currentUid,
-                onSwitchToReposts = onOpenReposts
-            )
-        }
-
-        when {
-            state.loading && state.items.isEmpty() -> {
-                item(key = "comments-loading", contentType = "state") {
-                    LoadingPanel("正在加载评论")
-                }
-            }
-
-            state.error != null && state.items.isEmpty() -> {
-                item(key = "comments-error", contentType = "state") {
-                    EmptyState(
-                        icon = Icons.Outlined.CloudOff,
-                        title = "评论暂时不可用",
-                        body = state.error.orEmpty(),
-                        actionLabel = "重试",
-                        onAction = onRetry
-                    )
-                }
-            }
-
-            state.items.isEmpty() -> {
-                item(key = "comments-empty", contentType = "state") {
-                    EmptyState(
-                        icon = Icons.Outlined.ChatBubbleOutline,
-                        title = "还没有评论",
-                        body = "来抢第一条评论，或者稍后刷新看看。"
-                    )
-                }
-            }
-
-            else -> {
-                items(
-                    items = state.items,
-                    key = { it.id },
-                    contentType = { "comment" }
-                ) { comment ->
-                    CommentRow(comment = comment, onOpenUser = onOpenUser)
-                    Hairline(
-                        modifier = Modifier.padding(start = 44.dp),
-                        color = AppTheme.colors.borderSoft
-                    )
-                }
-            }
-        }
-
-        if (state.items.isNotEmpty()) {
-            item(key = "comments-footer", contentType = "footer") {
-                DetailFooter(
-                    loadingMore = state.loadingMore,
-                    loadMoreError = state.loadMoreError,
-                    endReached = state.endReached,
-                    endLabel = "END OF COMMENTS",
-                    onLoadMore = onLoadMore
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun RepostList(
-    post: WeiboPost,
-    listState: LazyListState,
-    state: RepostListState,
-    onOpenImages: (String, List<WeiboImage>, Int, String) -> Unit,
-    onSaveImages: (String, List<WeiboImage>) -> Unit,
-    onOpenVideo: (VideoPreview, String) -> Unit,
-    onOpenUser: (WeiboUser) -> Unit,
-    onOpenPost: (WeiboPost) -> Unit,
-    currentUid: String,
-    onManagePost: (WeiboPost) -> Unit,
-    onSnackbar: (String) -> Unit,
-    onOpenComments: () -> Unit,
-    onRetry: () -> Unit,
-    onLoadMore: () -> Unit
-) {
-    AutoLoadMore(
-        listState = listState,
-        enabled = state.items.isNotEmpty() && !state.loading && !state.loadingMore &&
-            !state.endReached && state.loadMoreError == null,
-        onLoadMore = onLoadMore
-    )
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        item(key = "detail-post", contentType = "post") {
-            DetailPostHeader(
-                post = post,
-                onOpenImages = onOpenImages,
-                onSaveImages = onSaveImages,
-                onOpenVideo = onOpenVideo,
-                onOpenUser = onOpenUser,
-                onOpenPost = onOpenPost,
-                onSnackbar = onSnackbar,
-                onManagePost = onManagePost,
-                currentUid = currentUid,
-                onSwitchToReposts = onOpenComments
-            )
-        }
-
-        when {
-            state.loading && state.items.isEmpty() -> {
-                item(key = "reposts-loading", contentType = "state") {
-                    LoadingPanel("正在加载转发")
-                }
-            }
-
-            state.error != null && state.items.isEmpty() -> {
-                item(key = "reposts-error", contentType = "state") {
-                    EmptyState(
-                        icon = Icons.Outlined.CloudOff,
-                        title = "转发列表暂时不可用",
-                        body = state.error.orEmpty(),
-                        actionLabel = "重试",
-                        onAction = onRetry
-                    )
-                }
-            }
-
-            state.items.isEmpty() -> {
-                item(key = "reposts-empty", contentType = "state") {
-                    EmptyState(
-                        icon = Icons.Outlined.Repeat,
-                        title = "还没有人转发",
-                        body = "成为第一个转发这条微博的人。"
-                    )
-                }
-            }
-
-            else -> {
-                items(
-                    items = state.items,
-                    key = { it.id },
-                    contentType = { "repost" }
-                ) { repost ->
-                    RepostRow(repost = repost, onOpenUser = onOpenUser)
-                    Hairline(
-                        modifier = Modifier.padding(start = 44.dp),
-                        color = AppTheme.colors.borderSoft
-                    )
-                }
-            }
-        }
-
-        if (state.items.isNotEmpty()) {
-            item(key = "reposts-footer", contentType = "footer") {
-                DetailFooter(
-                    loadingMore = state.loadingMore,
-                    loadMoreError = state.loadMoreError,
-                    endReached = state.endReached,
-                    endLabel = "END OF REPOSTS",
-                    onLoadMore = onLoadMore
-                )
-            }
-        }
-    }
-}
-
 @Composable
 private fun CommentRow(comment: WeiboComment, onOpenUser: (WeiboUser) -> Unit) {
     val colors = AppTheme.colors

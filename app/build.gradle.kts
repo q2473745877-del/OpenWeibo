@@ -13,8 +13,8 @@ android {
         applicationId = "com.openweibo.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 18
-        versionName = "0.12.1"
+        versionCode = 19
+        versionName = "0.12.2"
 
         vectorDrawables {
             useSupportLibrary = true
