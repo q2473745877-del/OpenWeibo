@@ -1,4 +1,4 @@
-package com.openweibo.app.ui.detail
+﻿package com.openweibo.app.ui.detail
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -176,48 +176,37 @@ fun PostDetailScreen(
         )
         Hairline()
 
-        // The post itself lives outside the pager so switching between comments and
-        // reposts never slides the content being read.
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-        ) {
-            PostCard(
-                post = post,
-                onOpenImages = onOpenImages,
-                onSaveImages = onSaveImages,
-                onSnackbar = onSnackbar,
-                onOpenComments = { _ -> },
-                onOpenReposts = { _ -> selectTab(DetailTab.Reposts) },
-                onOpenVideo = onOpenVideo,
-                onOpenUser = onOpenUser,
-                onOpenOriginal = onOpenPost,
-                currentUid = currentUid,
-                onManagePost = onManagePost
-            )
-        }
-
         DetailTabs(
             selected = state.tab,
-            commentCount = if (state.comments.total > 0) state.comments.total else post.commentsCount,
-            repostCount = if (state.reposts.total > 0) state.reposts.total else post.repostsCount,
+            commentCount = if (state.comments.total > 0) {
+                state.comments.total
+            } else {
+                post.commentsCount
+            },
+            repostCount = if (state.reposts.total > 0) {
+                state.reposts.total
+            } else {
+                post.repostsCount
+            },
             onSelect = ::selectTab
         )
         Hairline()
 
+        // The post is the first item *inside* the scrolling list (not a fixed block
+        // above it), so swiping up on the post itself scrolls it away and brings the
+        // conversation into view. The pager only swaps which list drives the items,
+        // so the post never slides sideways when switching tabs.
         HorizontalPager(
             state = pagerState,
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
         ) { page ->
-            when (page) {
-                0 -> CommentList(
+            if (page == 0) {
+                CommentList(
+                    post = post,
                     listState = commentsListState,
                     state = state.comments,
-                    selectedTab = state.tab,
-                    onSelectTab = ::selectTab,
                     onOpenImages = onOpenImages,
                     onSaveImages = onSaveImages,
                     onOpenVideo = onOpenVideo,
@@ -230,12 +219,11 @@ fun PostDetailScreen(
                     onRetry = { viewModel.refresh() },
                     onLoadMore = { viewModel.loadMore() }
                 )
-
-                else -> RepostList(
+            } else {
+                RepostList(
+                    post = post,
                     listState = repostsListState,
                     state = state.reposts,
-                    selectedTab = state.tab,
-                    onSelectTab = ::selectTab,
                     onOpenImages = onOpenImages,
                     onSaveImages = onSaveImages,
                     onOpenVideo = onOpenVideo,
@@ -377,12 +365,47 @@ private fun DetailTabs(
     }
 }
 
+/**
+ * The post card that heads every detail list.
+ *
+ * It is a normal list item rather than a pinned header, which is what makes
+ * "swipe up on the post to reach the comments" work.
+ */
+@Composable
+private fun DetailPostHeader(
+    post: WeiboPost,
+    onOpenImages: (String, List<WeiboImage>, Int, String) -> Unit,
+    onSaveImages: (String, List<WeiboImage>) -> Unit,
+    onOpenVideo: (VideoPreview, String) -> Unit,
+    onOpenUser: (WeiboUser) -> Unit,
+    onOpenPost: (WeiboPost) -> Unit,
+    onSnackbar: (String) -> Unit,
+    onManagePost: (WeiboPost) -> Unit,
+    currentUid: String,
+    onSwitchToReposts: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        PostCard(
+            post = post,
+            onOpenImages = onOpenImages,
+            onSaveImages = onSaveImages,
+            onSnackbar = onSnackbar,
+            onOpenComments = { _ -> },
+            onOpenReposts = { _ -> onSwitchToReposts() },
+            onOpenVideo = onOpenVideo,
+            onOpenUser = onOpenUser,
+            onOpenOriginal = onOpenPost,
+            currentUid = currentUid,
+            onManagePost = onManagePost
+        )
+    }
+}
+
 @Composable
 private fun CommentList(
+    post: WeiboPost,
     listState: LazyListState,
     state: CommentListState,
-    selectedTab: DetailTab,
-    onSelectTab: (DetailTab) -> Unit,
     onOpenImages: (String, List<WeiboImage>, Int, String) -> Unit,
     onSaveImages: (String, List<WeiboImage>) -> Unit,
     onOpenVideo: (VideoPreview, String) -> Unit,
@@ -407,6 +430,21 @@ private fun CommentList(
         contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        item(key = "detail-post", contentType = "post") {
+            DetailPostHeader(
+                post = post,
+                onOpenImages = onOpenImages,
+                onSaveImages = onSaveImages,
+                onOpenVideo = onOpenVideo,
+                onOpenUser = onOpenUser,
+                onOpenPost = onOpenPost,
+                onSnackbar = onSnackbar,
+                onManagePost = onManagePost,
+                currentUid = currentUid,
+                onSwitchToReposts = onOpenReposts
+            )
+        }
+
         when {
             state.loading && state.items.isEmpty() -> {
                 item(key = "comments-loading", contentType = "state") {
@@ -467,10 +505,9 @@ private fun CommentList(
 
 @Composable
 private fun RepostList(
+    post: WeiboPost,
     listState: LazyListState,
     state: RepostListState,
-    selectedTab: DetailTab,
-    onSelectTab: (DetailTab) -> Unit,
     onOpenImages: (String, List<WeiboImage>, Int, String) -> Unit,
     onSaveImages: (String, List<WeiboImage>) -> Unit,
     onOpenVideo: (VideoPreview, String) -> Unit,
@@ -495,6 +532,21 @@ private fun RepostList(
         contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        item(key = "detail-post", contentType = "post") {
+            DetailPostHeader(
+                post = post,
+                onOpenImages = onOpenImages,
+                onSaveImages = onSaveImages,
+                onOpenVideo = onOpenVideo,
+                onOpenUser = onOpenUser,
+                onOpenPost = onOpenPost,
+                onSnackbar = onSnackbar,
+                onManagePost = onManagePost,
+                currentUid = currentUid,
+                onSwitchToReposts = onOpenComments
+            )
+        }
+
         when {
             state.loading && state.items.isEmpty() -> {
                 item(key = "reposts-loading", contentType = "state") {
