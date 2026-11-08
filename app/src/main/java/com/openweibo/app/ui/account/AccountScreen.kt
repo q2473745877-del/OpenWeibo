@@ -1,4 +1,4 @@
-package com.openweibo.app.ui.account
+﻿package com.openweibo.app.ui.account
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -267,7 +267,7 @@ fun AccountScreen(
                             fontWeight = FontWeight.Medium
                         )
                         Spacer(Modifier.width(8.dp))
-                        ValueTag("v0.9.1")
+                        ValueTag("v0.12.0")
                         Spacer(Modifier.weight(1f))
                         MonoLabel("WINDOWS EDITION", size = 8)
                     }

@@ -3,6 +3,7 @@ package com.openweibo.app.ui.viewer
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -27,6 +29,10 @@ import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,6 +42,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import com.openweibo.app.data.ShareTarget
 import com.openweibo.app.data.WeiboImage
 import com.openweibo.app.ui.components.IconAction
 import com.openweibo.app.ui.components.MonoLabel
@@ -43,12 +51,21 @@ import com.openweibo.app.ui.feed.NetworkImage
 import com.openweibo.app.ui.theme.AppTheme
 import com.openweibo.app.ui.theme.monoStyle
 
+/** What the long-press menu asked the host screen to do with the current image. */
+sealed interface ShareAction {
+    data class ToTarget(val target: ShareTarget) : ShareAction
+    data object System : ShareAction
+}
+
 @Composable
 fun ImageViewer(
     images: List<WeiboImage>,
     initialIndex: Int,
     title: String,
     onSaveCurrent: (WeiboImage) -> Unit,
+    onSaveAll: (List<WeiboImage>) -> Unit,
+    onShare: (WeiboImage, ShareAction) -> Unit,
+    availableShareTargets: List<ShareTarget>,
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -56,8 +73,9 @@ fun ImageViewer(
     val safeIndex = initialIndex.coerceIn(0, images.lastIndex)
     val pagerState = rememberPagerState(initialPage = safeIndex) { images.size }
     val current = images[pagerState.currentPage.coerceIn(0, images.lastIndex)]
+    var menuOpen by remember { mutableStateOf(false) }
 
-    BackHandler(onBack = onClose)
+    BackHandler(enabled = !menuOpen, onBack = onClose)
 
     Column(
         modifier = modifier
@@ -121,7 +139,10 @@ fun ImageViewer(
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(page, onClose) {
-                        detectTapGestures(onTap = { onClose() })
+                        detectTapGestures(
+                            onTap = { onClose() },
+                            onLongPress = { menuOpen = true }
+                        )
                     },
                 contentAlignment = Alignment.Center
             ) {
@@ -199,12 +220,118 @@ fun ImageViewer(
                 )
                 Spacer(Modifier.weight(1f))
                 Text(
-                    text = "滑动浏览 / 单击返回",
+                    text = "长按图片可保存或分享",
                     color = Color.White.copy(alpha = 0.28f),
                     style = monoStyle(8.5, letterSpacing = 0.5)
                 )
             }
         }
+    }
+
+    if (menuOpen) {
+        ShareSheet(
+            image = current,
+            imageCount = images.size,
+            targets = availableShareTargets,
+            onSaveCurrent = {
+                menuOpen = false
+                onSaveCurrent(current)
+            },
+            onSaveAll = {
+                menuOpen = false
+                onSaveAll(images)
+            },
+            onShare = { action ->
+                menuOpen = false
+                onShare(current, action)
+            },
+            onDismiss = { menuOpen = false }
+        )
+    }
+}
+
+@Composable
+private fun ShareSheet(
+    image: WeiboImage,
+    imageCount: Int,
+    targets: List<ShareTarget>,
+    onSaveCurrent: () -> Unit,
+    onSaveAll: () -> Unit,
+    onShare: (ShareAction) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFF141416))
+                .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(16.dp))
+                .padding(vertical = 8.dp)
+        ) {
+            Text(
+                text = if (image.isGif) "GIF 动图" else "原图",
+                color = Color.White.copy(alpha = 0.42f),
+                style = monoStyle(8.5, letterSpacing = 0.8),
+                modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp)
+            )
+
+            SheetItem(label = "保存此图片", onClick = onSaveCurrent)
+            if (imageCount > 1) {
+                SheetItem(label = "保存所有图片（共 $imageCount 张）", onClick = onSaveAll)
+            }
+
+            if (targets.isNotEmpty()) {
+                Spacer(Modifier.size(6.dp))
+                Box(
+                    Modifier
+                        .padding(horizontal = 16.dp)
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(Color.White.copy(alpha = 0.08f))
+                )
+                Spacer(Modifier.size(6.dp))
+                Text(
+                    text = "分享图片",
+                    color = Color.White.copy(alpha = 0.42f),
+                    style = monoStyle(8.5, letterSpacing = 0.8),
+                    modifier = Modifier.padding(start = 16.dp, top = 4.dp, bottom = 4.dp)
+                )
+                targets.forEach { target ->
+                    SheetItem(
+                        label = "分享至${target.label}",
+                        onClick = { onShare(ShareAction.ToTarget(target)) }
+                    )
+                }
+            }
+
+            Spacer(Modifier.size(6.dp))
+            Box(
+                Modifier
+                    .padding(horizontal = 16.dp)
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(Color.White.copy(alpha = 0.08f))
+            )
+            SheetItem(label = "更多分享…", onClick = { onShare(ShareAction.System) })
+        }
+    }
+}
+
+@Composable
+private fun SheetItem(label: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+    ) {
+        Text(
+            text = label,
+            color = Color.White.copy(alpha = 0.92f),
+            fontSize = 14.5.sp,
+            lineHeight = 19.sp
+        )
     }
 }
 

@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.DynamicFeed
+import androidx.compose.material.icons.outlined.MailOutline
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Whatshot
 import androidx.compose.material3.CircularProgressIndicator
@@ -85,6 +86,10 @@ import com.openweibo.app.data.WeiboUser
 import com.openweibo.app.ui.account.AccountScreen
 import com.openweibo.app.ui.components.AppSnackbar
 import com.openweibo.app.ui.components.Hairline
+import com.openweibo.app.ui.chat.ChatThreadScreen
+import com.openweibo.app.ui.chat.ChatThreadViewModel
+import com.openweibo.app.ui.message.MessageScreen
+import com.openweibo.app.ui.message.MessageViewModel
 import com.openweibo.app.ui.compose.ComposeScreen
 import com.openweibo.app.ui.compose.ComposeViewModel
 import com.openweibo.app.ui.detail.DetailTab
@@ -111,6 +116,7 @@ import com.openweibo.app.ui.theme.OpenWeiboTheme
 import com.openweibo.app.ui.theme.monoStyle
 import com.openweibo.app.ui.video.VideoPlayerScreen
 import com.openweibo.app.ui.viewer.ImageViewer
+import com.openweibo.app.ui.viewer.ShareAction
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -151,6 +157,7 @@ private data class OverlayEntry(
 private enum class MainTab(val label: String, val icon: ImageVector) {
     Timeline("时间线", Icons.Outlined.DynamicFeed),
     Hot("热搜", Icons.Outlined.Whatshot),
+    Chat("消息", Icons.Outlined.MailOutline),
     Account("我的", Icons.Outlined.PersonOutline)
 }
 
@@ -193,6 +200,8 @@ fun OpenWeiboRoot(container: AppContainer) {
         var deleteTarget by remember { mutableStateOf<WeiboPost?>(null) }
         var deleting by remember { mutableStateOf(false) }
         var preparingEdit by remember { mutableStateOf(false) }
+        var sharing by remember { mutableStateOf(false) }
+        var pendingMessageUser by remember { mutableStateOf<WeiboUser?>(null) }
 
         fun notify(message: String, long: Boolean = false) {
             if (message.isBlank()) return
@@ -346,6 +355,40 @@ fun OpenWeiboRoot(container: AppContainer) {
             )
         }
 
+        fun performShare(image: WeiboImage, action: ShareAction) {
+            if (sharing) {
+                notify("正在准备分享内容，请稍候")
+                return
+            }
+            sharing = true
+            scope.launch {
+                try {
+                    val extension = if (image.isGif) "gif" else "jpg"
+                    val fileName = "OpenWeibo_share_${System.currentTimeMillis()}.$extension"
+                    val file = container.mediaSharer.downloadForShare(image.originalUrl, fileName)
+                    val caption = "来自 OpenWeibo 分享"
+                    when (action) {
+                        ShareAction.System -> {
+                            container.mediaSharer.shareToSystem(file, caption)
+                        }
+
+                        is ShareAction.ToTarget -> {
+                            val ok = container.mediaSharer.shareTo(action.target, file, caption)
+                            if (!ok) {
+                                notify("未检测到${action.target.label}，可改用「更多分享」")
+                            }
+                        }
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    notify("分享失败：${error.message ?: "请重试"}", long = true)
+                } finally {
+                    sharing = false
+                }
+            }
+        }
+
         fun openVideo(video: VideoPreview, title: String) {
             videoTarget = VideoTarget(
                 video = video,
@@ -362,14 +405,39 @@ fun OpenWeiboRoot(container: AppContainer) {
             pushOverlay(OverlayTarget.Detail(post, tab))
         }
 
-        fun openProfile(user: WeiboUser) {
-            if (user.id.isBlank()) {
+        fun openProfile(user: WeiboUser) {            if (user.id.isBlank()) {
                 notify("无法打开该用户主页")
                 return
             }
             val top = overlays.lastOrNull()?.target
             if (top is OverlayTarget.Profile && top.user.id == user.id) return
             pushOverlay(OverlayTarget.Profile(user))
+        }
+
+        /**
+         * Notification rows only carry a uid, so resolve a minimal profile first;
+         * the profile screen reloads the full user info on its own.
+         */
+        fun openUserByUid(uid: String) {
+            if (uid.isBlank()) {
+                notify("无法打开该用户主页")
+                return
+            }
+            val activeSession = session ?: return
+            scope.launch {
+                try {
+                    val user = container.api.fetchUser(activeSession, uid)
+                    if (user == null) {
+                        notify("无法打开该用户主页")
+                    } else {
+                        openProfile(user)
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    notify(error.message ?: "无法打开该用户主页")
+                }
+            }
         }
 
         fun requestEdit(post: WeiboPost) {
@@ -547,7 +615,10 @@ fun OpenWeiboRoot(container: AppContainer) {
                         closeOverlays()
                         container.sessionManager.clear()
                         notify("已退出登录，本机会话已清除")
-                    }
+                    },
+                    pendingMessageTarget = pendingMessageUser,
+                    onPendingMessageConsumed = { pendingMessageUser = null },
+                    onOpenUserByUid = ::openUserByUid
                 )
 
                 overlays.forEach { entry ->
@@ -639,6 +710,10 @@ fun OpenWeiboRoot(container: AppContainer) {
                                     onOpenUser = ::openProfile,
                                     currentUid = currentSession.uid,
                                     onManagePost = { manageTarget = it },
+                                    onSendMessage = { user ->
+                                        closeOverlays()
+                                        pendingMessageUser = user
+                                    },
                                     onSnackbar = { notify(it) },
                                     onLoginExpired = {
                                         closeOverlays()
@@ -748,6 +823,9 @@ fun OpenWeiboRoot(container: AppContainer) {
                         onSaveCurrent = { image ->
                             performSave(target.postId, listOf(image))
                         },
+                        onSaveAll = { images -> performSave(target.postId, images) },
+                        onShare = { image, action -> performShare(image, action) },
+                        availableShareTargets = container.mediaSharer.availableTargets(),
                         onClose = { viewer = null }
                     )
                 }
@@ -834,7 +912,10 @@ private fun MainScaffold(
     onManagePost: (WeiboPost) -> Unit,
     onSnackbar: (String) -> Unit,
     onLoginExpired: () -> Unit,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    pendingMessageTarget: WeiboUser?,
+    onPendingMessageConsumed: () -> Unit,
+    onOpenUserByUid: (String) -> Unit
 ) {
     val colors = AppTheme.colors
     var tab by rememberSaveable { mutableStateOf(MainTab.Timeline) }
@@ -847,9 +928,27 @@ private fun MainScaffold(
         key = "hot-$sessionKey",
         factory = HotSearchViewModel.factory(container)
     )
+    val messageViewModel: MessageViewModel = viewModel(
+        key = "message-$sessionKey",
+        factory = MessageViewModel.factory(container)
+    )
+    var chatThread by remember { mutableStateOf<Triple<String, String, String>?>(null) }
 
-    BackHandler(enabled = tab != MainTab.Timeline && !overlayOpen && !viewerOpen) {
-        tab = MainTab.Timeline
+    // Opening a thread from a user profile: switch to the message tab first.
+    LaunchedEffect(pendingMessageTarget) {
+        val target = pendingMessageTarget ?: return@LaunchedEffect
+        chatThread = Triple(target.id, target.screenName, target.avatarUrl)
+        tab = MainTab.Chat
+        onPendingMessageConsumed()
+    }
+
+    BackHandler(enabled = (tab != MainTab.Timeline || chatThread != null) && !overlayOpen && !viewerOpen) {
+        if (tab == MainTab.Chat && chatThread != null) {
+            chatThread = null
+        } else {
+            chatThread = null
+            tab = MainTab.Timeline
+        }
     }
 
     LaunchedEffect(feedRefreshToken) {
@@ -912,6 +1011,43 @@ private fun MainScaffold(
                     onLoginExpired = onLoginExpired
                 )
 
+                MainTab.Chat -> {
+                    val peer = chatThread
+                    if (peer == null) {
+                        MessageScreen(
+                            viewModel = messageViewModel,
+                            onOpenThread = { uid, name, avatar ->
+                                chatThread = Triple(uid, name, avatar)
+                            },
+                            onOpenNotificationPost = { item ->
+                                item.post?.let { post ->
+                                    onOpenComments(post)
+                                }
+                            },
+                            onOpenUserByUid = onOpenUserByUid,
+                            onLoginExpired = onLoginExpired
+                        )
+                    } else {
+                        key(peer.first) {
+                            val threadViewModel: ChatThreadViewModel = viewModel(
+                                key = "chat-${peer.first}-$sessionKey",
+                                factory = ChatThreadViewModel.factory(
+                                    container,
+                                    peer.first,
+                                    peer.second,
+                                    peer.third
+                                )
+                            )
+                            ChatThreadScreen(
+                                viewModel = threadViewModel,
+                                onBack = { chatThread = null },
+                                onSnackbar = onSnackbar,
+                                onLoginExpired = onLoginExpired
+                            )
+                        }
+                    }
+                }
+
                 MainTab.Account -> AccountScreen(
                     session = session,
                     themeMode = themeMode,
@@ -944,7 +1080,7 @@ private fun MainBottomBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = 10.dp, vertical = 5.dp),
+                .padding(horizontal = 10.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             MainTab.entries.forEach { tab ->
@@ -967,21 +1103,21 @@ private fun MainBottomBar(
                             }
                             onSelect(tab)
                         }
-                        .padding(vertical = 6.dp),
+                        .padding(vertical = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Icon(
                         imageVector = tab.icon,
                         contentDescription = tab.label,
                         tint = if (active) colors.text else colors.textFaint,
-                        modifier = Modifier.size(19.dp)
+                        modifier = Modifier.size(18.dp)
                     )
-                    Spacer(Modifier.height(3.dp))
+                    Spacer(Modifier.height(2.dp))
                     Text(
                         text = tab.label,
                         color = if (active) colors.text else colors.textFaint,
-                        fontSize = 10.5.sp,
-                        lineHeight = 14.sp,
+                        fontSize = 10.sp,
+                        lineHeight = 13.sp,
                         fontWeight = if (active) FontWeight.Medium else FontWeight.Normal
                     )
                     Spacer(Modifier.height(2.dp))

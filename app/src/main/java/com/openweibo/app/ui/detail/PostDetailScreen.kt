@@ -175,6 +175,29 @@ fun PostDetailScreen(
             onRepost = { showRepostDialog = true }
         )
         Hairline()
+
+        // The post itself lives outside the pager so switching between comments and
+        // reposts never slides the content being read.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+        ) {
+            PostCard(
+                post = post,
+                onOpenImages = onOpenImages,
+                onSaveImages = onSaveImages,
+                onSnackbar = onSnackbar,
+                onOpenComments = { _ -> },
+                onOpenReposts = { _ -> selectTab(DetailTab.Reposts) },
+                onOpenVideo = onOpenVideo,
+                onOpenUser = onOpenUser,
+                onOpenOriginal = onOpenPost,
+                currentUid = currentUid,
+                onManagePost = onManagePost
+            )
+        }
+
         DetailTabs(
             selected = state.tab,
             commentCount = if (state.comments.total > 0) state.comments.total else post.commentsCount,
@@ -191,9 +214,10 @@ fun PostDetailScreen(
         ) { page ->
             when (page) {
                 0 -> CommentList(
-                    post = post,
                     listState = commentsListState,
                     state = state.comments,
+                    selectedTab = state.tab,
+                    onSelectTab = ::selectTab,
                     onOpenImages = onOpenImages,
                     onSaveImages = onSaveImages,
                     onOpenVideo = onOpenVideo,
@@ -208,9 +232,10 @@ fun PostDetailScreen(
                 )
 
                 else -> RepostList(
-                    post = post,
                     listState = repostsListState,
                     state = state.reposts,
+                    selectedTab = state.tab,
+                    onSelectTab = ::selectTab,
                     onOpenImages = onOpenImages,
                     onSaveImages = onSaveImages,
                     onOpenVideo = onOpenVideo,
@@ -330,7 +355,7 @@ private fun DetailTabs(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 2.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(7.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -354,9 +379,10 @@ private fun DetailTabs(
 
 @Composable
 private fun CommentList(
-    post: WeiboPost,
     listState: LazyListState,
     state: CommentListState,
+    selectedTab: DetailTab,
+    onSelectTab: (DetailTab) -> Unit,
     onOpenImages: (String, List<WeiboImage>, Int, String) -> Unit,
     onSaveImages: (String, List<WeiboImage>) -> Unit,
     onOpenVideo: (VideoPreview, String) -> Unit,
@@ -381,22 +407,6 @@ private fun CommentList(
         contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        item(key = "post", contentType = "post") {
-            PostCard(
-                post = post,
-                onOpenImages = onOpenImages,
-                onSaveImages = onSaveImages,
-                onSnackbar = onSnackbar,
-                onOpenComments = { _ -> },
-                onOpenReposts = { _ -> onOpenReposts() },
-                onOpenVideo = onOpenVideo,
-                onOpenUser = onOpenUser,
-                onOpenOriginal = onOpenPost,
-                currentUid = currentUid,
-                onManagePost = onManagePost
-            )
-        }
-
         when {
             state.loading && state.items.isEmpty() -> {
                 item(key = "comments-loading", contentType = "state") {
@@ -457,9 +467,10 @@ private fun CommentList(
 
 @Composable
 private fun RepostList(
-    post: WeiboPost,
     listState: LazyListState,
     state: RepostListState,
+    selectedTab: DetailTab,
+    onSelectTab: (DetailTab) -> Unit,
     onOpenImages: (String, List<WeiboImage>, Int, String) -> Unit,
     onSaveImages: (String, List<WeiboImage>) -> Unit,
     onOpenVideo: (VideoPreview, String) -> Unit,
@@ -484,22 +495,6 @@ private fun RepostList(
         contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        item(key = "post", contentType = "post") {
-            PostCard(
-                post = post,
-                onOpenImages = onOpenImages,
-                onSaveImages = onSaveImages,
-                onSnackbar = onSnackbar,
-                onOpenComments = { _ -> onOpenComments() },
-                onOpenReposts = { _ -> },
-                onOpenVideo = onOpenVideo,
-                onOpenUser = onOpenUser,
-                onOpenOriginal = onOpenPost,
-                currentUid = currentUid,
-                onManagePost = onManagePost
-            )
-        }
-
         when {
             state.loading && state.items.isEmpty() -> {
                 item(key = "reposts-loading", contentType = "state") {

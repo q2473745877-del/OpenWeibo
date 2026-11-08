@@ -93,18 +93,18 @@ fun PostCard(
             .fillMaxWidth()
             .appPanel(shape = shape)
             .clickable { onOpenComments(post) }
-            .padding(15.dp)
+            .padding(horizontal = 13.dp, vertical = 11.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Avatar(
                 url = post.user.avatarUrl,
                 name = post.user.screenName,
-                size = 39.dp,
+                size = 33.dp,
                 modifier = Modifier
                     .clip(CircleShape)
                     .clickable { onOpenUser(post.user) }
             )
-            Spacer(Modifier.width(11.dp))
+            Spacer(Modifier.width(9.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -170,22 +170,22 @@ fun PostCard(
         }
 
         if (post.text.isNotBlank()) {
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(9.dp))
             ExpandablePostText(
                 text = post.text,
                 isLongText = post.isLongText,
                 statusId = post.id,
                 color = colors.text,
-                fontSize = 15.sp,
-                lineHeight = 23.5.sp,
-                collapsedMaxLines = 9,
+                fontSize = 15.5.sp,
+                lineHeight = 24.sp,
+                collapsedMaxLines = 12,
                 compact = false,
                 onSnackbar = onSnackbar
             )
         }
 
         if (post.images.isNotEmpty()) {
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
             ImageGrid(
                 images = post.images,
                 onOpen = { index ->
@@ -193,7 +193,7 @@ fun PostCard(
                 }
             )
         } else if (post.video != null) {
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
             VideoCard(
                 video = post.video,
                 onOpen = { onOpenVideo(post.video, post.user.screenName) }
@@ -201,7 +201,7 @@ fun PostCard(
         }
 
         post.retweet?.let { retweet ->
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
             RetweetCard(
                 retweet = retweet,
                 onOpenImages = { index ->
@@ -224,14 +224,14 @@ fun PostCard(
             )
         }
 
-        Spacer(Modifier.height(13.dp))
+        Spacer(Modifier.height(10.dp))
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(1.dp)
                 .background(colors.borderSoft)
         )
-        Spacer(Modifier.height(9.dp))
+        Spacer(Modifier.height(6.dp))
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Row(

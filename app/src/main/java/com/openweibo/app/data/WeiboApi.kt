@@ -275,6 +275,23 @@ class WeiboApi(
         throw lastError ?: WeiboApiException(-1, "主页加载失败，请重试")
     }
 
+    /**
+     * Minimal user lookup by uid, used where only an id is known (notification rows,
+     * direct-message peers). Returns null when Weibo has no userInfo for the id.
+     */
+    suspend fun fetchUser(session: Session, uid: String): WeiboUser? = withContext(Dispatchers.IO) {
+        if (uid.isBlank()) return@withContext null
+        val root = executeMobileJson(
+            "https://m.weibo.cn/api/container/getIndex?type=uid&value=$uid",
+            session.cookies
+        )
+        WeiboParser.parseUser(
+            root.asObject()
+                ?.get("data").asObject()
+                ?.get("userInfo").asObject()
+        )
+    }
+
     suspend fun fetchHotSearch(
         cookies: String,
         category: HotCategory

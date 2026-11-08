@@ -30,7 +30,9 @@ data class FeedUiState(
     val loadMoreError: String? = null,
     val authExpired: Boolean = false,
     val endReached: Boolean = false,
-    val lastUpdated: Long? = null
+    val lastUpdated: Long? = null,
+    /** Increments every time a top-of-timeline refresh completes; drives scroll-to-top. */
+    val refreshCount: Int = 0
 )
 
 class FeedViewModel(private val container: AppContainer) : ViewModel() {
@@ -150,7 +152,8 @@ class FeedViewModel(private val container: AppContainer) : ViewModel() {
             loadMoreError = null,
             endReached = !page.hasMore || page.nextCursor == null,
             authExpired = false,
-            lastUpdated = System.currentTimeMillis()
+            lastUpdated = System.currentTimeMillis(),
+            refreshCount = _state.value.refreshCount + 1
         )
     }
 

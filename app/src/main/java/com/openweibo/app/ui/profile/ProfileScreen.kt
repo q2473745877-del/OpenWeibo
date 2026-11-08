@@ -30,6 +30,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material.icons.outlined.MailOutline
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.CircularProgressIndicator
@@ -83,6 +84,7 @@ fun ProfileScreen(
     onOpenUser: (WeiboUser) -> Unit,
     currentUid: String,
     onManagePost: (WeiboPost) -> Unit,
+    onSendMessage: (WeiboUser) -> Unit,
     onSnackbar: (String) -> Unit,
     onLoginExpired: () -> Unit
 ) {
@@ -166,7 +168,8 @@ fun ProfileScreen(
                     ProfileHeader(
                         user = user,
                         state = state,
-                        onToggleFollow = { viewModel.toggleFollow() }
+                        onToggleFollow = { viewModel.toggleFollow() },
+                        onSendMessage = { onSendMessage(user) }
                     )
                 }
 
@@ -293,7 +296,8 @@ private fun ProfileTopBar(
 private fun ProfileHeader(
     user: WeiboUser,
     state: ProfileUiState,
-    onToggleFollow: () -> Unit
+    onToggleFollow: () -> Unit,
+    onSendMessage: () -> Unit
 ) {
     val colors = AppTheme.colors
     Column(
@@ -386,12 +390,21 @@ private fun ProfileHeader(
         }
         if (!state.isSelf && user.id.isNotBlank()) {
             Spacer(Modifier.height(13.dp))
-            FollowButton(
-                following = user.following,
-                mutual = user.isMutual,
-                busy = state.followBusy,
-                onClick = onToggleFollow
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(modifier = Modifier.weight(1f)) {
+                    FollowButton(
+                        following = user.following,
+                        mutual = user.isMutual,
+                        busy = state.followBusy,
+                        onClick = onToggleFollow
+                    )
+                }
+                MessageButton(onClick = onSendMessage)
+            }
         }
     }
 }
@@ -468,6 +481,36 @@ private fun FollowButton(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun MessageButton(onClick: () -> Unit) {
+    val colors = AppTheme.colors
+    val shape = RoundedCornerShape(9.dp)
+    Row(
+        modifier = Modifier
+            .height(38.dp)
+            .clip(shape)
+            .background(colors.surfaceAlt)
+            .border(1.dp, colors.border, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.MailOutline,
+            contentDescription = "发私信",
+            tint = colors.textDim,
+            modifier = Modifier.size(15.dp)
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = "私信",
+            color = colors.text,
+            fontSize = 12.5.sp,
+            fontWeight = FontWeight.Medium
+        )
     }
 }
 

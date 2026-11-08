@@ -24,7 +24,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarData
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -44,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.openweibo.app.ui.theme.AppTheme
+import com.openweibo.app.ui.theme.Geist
 import com.openweibo.app.ui.theme.GeistMono
 import com.openweibo.app.ui.theme.monoStyle
 
@@ -260,22 +260,26 @@ fun ScreenHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 20.dp, end = 10.dp, top = 16.dp, bottom = 12.dp),
+            .padding(start = 18.dp, end = 8.dp, top = 10.dp, bottom = 7.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.headlineSmall,
-                color = colors.text
+                color = colors.text,
+                fontFamily = Geist,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 18.sp,
+                lineHeight = 23.sp,
+                letterSpacing = (-0.3).sp
             )
             if (!subtitle.isNullOrBlank()) {
-                Spacer(Modifier.height(4.dp))
-                MonoLabel(subtitle.uppercase())
+                Spacer(Modifier.height(2.dp))
+                MonoLabel(subtitle.uppercase(), size = 8.5)
             }
         }
         Row(
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            horizontalArrangement = Arrangement.spacedBy(0.dp),
             verticalAlignment = Alignment.CenterVertically,
             content = actions
         )

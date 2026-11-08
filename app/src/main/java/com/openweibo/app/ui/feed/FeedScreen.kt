@@ -103,6 +103,14 @@ fun FeedScreen(
         state.loadMoreError?.let(onSnackbar)
     }
 
+    // Any completed top-of-timeline refresh (toolbar, pull-to-refresh, tab double-tap,
+    // or post-publish) bumps refreshCount; jump back to the newest post when it changes.
+    LaunchedEffect(state.refreshCount) {
+        if (state.refreshCount > 0) {
+            listState.scrollToItem(0)
+        }
+    }
+
     LaunchedEffect(listState, state.posts.size, state.endReached, state.loadingMore) {
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
             .distinctUntilChanged()
@@ -201,12 +209,12 @@ fun FeedScreen(
                                 state = listState,
                                 modifier = Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(
-                                    start = 14.dp,
-                                    end = 14.dp,
-                                    top = 10.dp,
-                                    bottom = 26.dp
+                                    start = 12.dp,
+                                    end = 12.dp,
+                                    top = 8.dp,
+                                    bottom = 22.dp
                                 ),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 if (state.authExpired) {
                                     item(key = "expired", contentType = "banner") {

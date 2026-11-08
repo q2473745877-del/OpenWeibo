@@ -8,13 +8,18 @@ import coil.ImageLoaderFactory
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
 import com.openweibo.app.data.ImageSaver
+import com.openweibo.app.data.MediaSharer
 import com.openweibo.app.data.PostChange
 import com.openweibo.app.data.SessionManager
 import com.openweibo.app.data.SessionStore
 import com.openweibo.app.data.SettingsStore
 import com.openweibo.app.data.VideoSaver
 import com.openweibo.app.data.WeiboApi
+import com.openweibo.app.data.WeiboChatApi
+import com.openweibo.app.data.WeiboNotificationApi
+import com.openweibo.app.data.WeiboParser
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.serialization.json.Json
 
 class AppContainer(context: Context) {
     val appContext = context.applicationContext
@@ -29,6 +34,15 @@ class AppContainer(context: Context) {
     )
     val imageSaver = ImageSaver(appContext)
     val videoSaver = VideoSaver(appContext)
+    val mediaSharer = MediaSharer(appContext)
+    val chatApi = WeiboChatApi(
+        contentResolver = appContext.contentResolver,
+        json = Json { ignoreUnknownKeys = true; isLenient = true }
+    )
+    val notificationApi = WeiboNotificationApi(
+        json = Json { ignoreUnknownKeys = true; isLenient = true },
+        parser = WeiboParser
+    )
 }
 
 class OpenWeiboApp : Application(), ImageLoaderFactory {
